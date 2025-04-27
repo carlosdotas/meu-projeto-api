@@ -1,0 +1,34 @@
+### Criar um novo item
+POST http://localhost:3000/clientes
+Content-Type: application/json
+
+{
+  "nome": "Tucano do Cerrado",
+  "idade": "20",
+  "email":"teste@teste61.com",
+  "telefone": "62999990000"
+}
+
+###
+
+### Listar todos os itens
+GET http://localhost:3000/clientes?q=51
+
+###
+
+### Atualizar um item específico
+PUT http://localhost:3000/clientes/1
+Content-Type: application/json
+
+{
+  "nome": "Tucano do Cerrado Atualizado",
+  "email":"teste@teste562.com",
+  "rota": "256s5d",
+  "telefone": "62999990000"
+}
+
+###
+
+### Deletar um item
+DELETE http://localhost:3000/clientes?email=teste@teste2.com
+
