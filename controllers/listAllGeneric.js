@@ -1,99 +1,67 @@
 const db = require('../db');
+const { checkAndAddMissingColumns } = require('./genericHelpers');
 
 async function listAllGeneric(req, res) {
     const table = req.params.table;
     const query = req.query;
 
-    // 1. Verificar se a tabela existe
-    db.query(`SHOW TABLES LIKE ?`, [table], (err, tables) => {
-        if (err) {
-            return res.status(500).json({ error: 'Erro ao verificar tabela', details: err.message });
-        }
-
+    try {
+        // 1. Verificar existência da tabela
+        const tables = await db.queryAsync(`SHOW TABLES LIKE ?`, [table]);
         if (tables.length === 0) {
             return res.status(400).json({ error: `Tabela '${table}' não existe` });
         }
+        // 2. Obter colunas e filtrar LONGBLOB
+        const columns = await db.queryAsync(`SHOW COLUMNS FROM \`${table}\``);
+        const fieldsToHide = columns.filter(c => c.Type.toUpperCase().includes('LONGBLOB')).map(c => c.Field);
+        const allFields = columns.map(c => c.Field);
+        const visibleFields = allFields.filter(f => !fieldsToHide.includes(f));
 
-        // 2. Buscar campos da tabela
-        db.query(`SHOW COLUMNS FROM \`${table}\``, (err, columns) => {
-            if (err) {
-                return res.status(500).json({ error: 'Erro ao buscar colunas', details: err.message });
+        // 3. Construir cláusulas WHERE
+        const whereClauses = [];
+        const values = [];
+        for (const rawKey in query) {
+            if (['page', 'limit', 'sort', 'q', 'fields'].includes(rawKey)) continue;
+            const value = query[rawKey];
+            let key = rawKey, operator = '=';
+            if (rawKey.includes('|')) {
+                [key, operator] = rawKey.split('|');
+            } else if (typeof value === 'string' && value.includes('%')) {
+                operator = 'LIKE';
             }
+            whereClauses.push(`\`${key}\` ${operator} ?`);
+            values.push(value);
+        }
+        // Full-text
+        if (query.q) {
+            const terms = allFields.map(f => `\`${f}\` LIKE ?`).join(' OR ');
+            whereClauses.push(`(${terms})`);
+            allFields.forEach(() => values.push(`%${query.q}%`));
+        }
+        const whereSQL = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-            const allFields = columns.map(col => col.Field);
+        // Ordenação e paginação
+        let orderSQL = '';
+        if (query.sort) {
+            const [sf, sd = 'asc'] = query.sort.split('|');
+            if (visibleFields.includes(sf)) orderSQL = `ORDER BY \`${sf}\` ${sd.toUpperCase()==='DESC'?'DESC':'ASC'}`;
+        }
+        let limitSQL = '';
+        if (query.page && query.limit) {
+            const p = parseInt(query.page,10)||1;
+            const l = parseInt(query.limit,10)||10;
+            limitSQL = `LIMIT ${l} OFFSET ${(p-1)*l}`;
+        }
 
-            // 3. Construir filtros
-            let whereClauses = [];
-            let values = [];
-
-            for (const rawKey in query) {
-                if (['page', 'limit', 'sort', 'q', 'fields'].includes(rawKey)) {
-                    continue; // pular controles
-                }
-
-                const value = query[rawKey];
-                let key = rawKey;
-                let operator = '=';
-
-                if (rawKey.includes('|')) {
-                    const parts = rawKey.split('|');
-                    key = parts[0];
-                    operator = parts[1];
-                } else if (typeof value === 'string' && value.includes('%')) {
-                    operator = 'LIKE';
-                }
-
-                whereClauses.push(`\`${key}\` ${operator} ?`);
-                values.push(value);
-            }
-
-            // 4. Full-Text search (q=...)
-            if (query.q) {
-                const searchTerms = allFields.map(field => `\`${field}\` LIKE ?`).join(' OR ');
-                const searchValues = allFields.map(() => `%${query.q}%`);
-                whereClauses.push(`(${searchTerms})`);
-                values.push(...searchValues);
-            }
-
-            const whereSQL = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-
-            // 5. Selecionar campos específicos
-            let fieldsSQL = '*';
-            if (query.fields) {
-                const selectedFields = query.fields.split(',').map(f => `\`${f.trim()}\``);
-                fieldsSQL = selectedFields.join(', ');
-            }
-
-            // 6. Ordenação
-            let orderSQL = '';
-            if (query.sort) {
-                const [sortField, sortDir = 'asc'] = query.sort.split('|');
-                if (allFields.includes(sortField)) {
-                    orderSQL = `ORDER BY \`${sortField}\` ${sortDir.toUpperCase() === 'DESC' ? 'DESC' : 'ASC'}`;
-                }
-            }
-
-            // 7. Paginação
-            let limitSQL = '';
-            if (query.page && query.limit) {
-                const page = parseInt(query.page, 10) || 1;
-                const limit = parseInt(query.limit, 10) || 10;
-                const offset = (page - 1) * limit;
-                limitSQL = `LIMIT ${limit} OFFSET ${offset}`;
-            }
-
-            // 8. Montar SQL final
-            const sql = `SELECT ${fieldsSQL} FROM \`${table}\` ${whereSQL} ${orderSQL} ${limitSQL}`;
-
-            db.query(sql, values, (err, rows) => {
-                if (err) {
-                    return res.status(500).json({ error: 'Erro ao buscar registros', details: err.message });
-                }
-
-                res.status(200).json(rows);
-            });
-        });
-    });
+        // Seleção final
+        const fieldsSQL = visibleFields.map(f => `\`${f}\``).join(', ');
+        const sql = `SELECT ${fieldsSQL} FROM \`${table}\` ${whereSQL} ${orderSQL} ${limitSQL}`;
+        const rows = await db.queryAsync(sql, values);
+        res.status(200).json(rows);
+    } catch (err) {
+        console.error('[listAllGeneric]', err);
+        res.status(500).json({ error: 'Erro ao buscar registros', details: err.message });
+    }
 }
 
 module.exports = listAllGeneric;

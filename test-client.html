@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Teste API Genérica</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; background: #f7f7f7; }
+        h1 { color: #333; }
+        label { display: block; margin-top: 1em; }
+        input, select, textarea { width: 100%; padding: 0.5em; margin-top: 0.2em; }
+        button { margin-top: 1em; padding: 0.7em 1.5em; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #222; color: #0f0; padding: 1em; border-radius: 4px; margin-top: 2em; }
+    </style>
+</head>
+<body>
+    <h1>Teste API Genérica</h1>
+    <form id="api-form">
+        <label>
+            URL do servidor:
+            <input type="text" id="server-url" value="http://localhost:3000" required>
+        </label>
+        <label>
+            Endpoint:
+            <select id="endpoint">
+                <option value="create">Criar (POST)</option>
+                <option value="update">Atualizar (PUT)</option>
+                <option value="get">Buscar 1 (GET)</option>
+                <option value="list">Listar todos (GET)</option>
+                <option value="delete">Deletar (DELETE)</option>
+            </select>
+        </label>
+        <label>
+            Tabela:
+            <input type="text" id="table" value="usuarios" required>
+        </label>
+        <label id="id-label" style="display:none">
+            ID:
+            <input type="text" id="record-id" value="1">
+        </label>
+        <label>
+            <input type="checkbox" id="toggle-inputs" checked> Usar inputs separados (nome, email, etc)
+        </label>
+        <div id="inputs-area">
+            <label>Nome:<input type="text" id="input-nome" value="João da Silva"></label>
+            <label>Email:<input type="email" id="input-email" value="joao@teste.com"></label>
+            <label>Idade:<input type="number" id="input-idade" value="30"></label>
+            <label>Telefone:<input type="text" id="input-telefone" value="11999999999"></label>
+        </div>
+        <label id="body-label">
+            Dados (JSON):
+            <textarea id="json-body" rows="4">{
+  "nome": "João da Silva",
+  "email": "joao@teste.com",
+  "idade": "30",
+  "telefone": "11999999999"
+}</textarea>
+        </label>
+        <label>Arquivo:<input type="file" name="foto" id="input-arquivo"></label>
+        <span id="file-name"></span>
+        <button type="submit">Enviar</button>
+    </form>
+    <pre id="response"></pre>
+
+    <script>
+        // Upload de arquivo
+        const inputArquivo = document.getElementById('input-arquivo');
+        const fileNameSpan = document.getElementById('file-name');
+        inputArquivo.addEventListener('change', function() {
+            fileNameSpan.textContent = inputArquivo.foto.length ? inputArquivo.foto[0].name : '';
+        });
+
+        // Sincronização dos inputs com o JSON
+        const toggleInputs = document.getElementById('toggle-inputs');
+        const inputsArea = document.getElementById('inputs-area');
+        const inputNome = document.getElementById('input-nome');
+        const inputEmail = document.getElementById('input-email');
+        const inputIdade = document.getElementById('input-idade');
+        const inputTelefone = document.getElementById('input-telefone');
+        const jsonBody = document.getElementById('json-body');
+
+        // Atualiza o JSON quando os inputs mudam
+        function updateJsonFromInputs() {
+            const obj = {
+                nome: inputNome.value,
+                email: inputEmail.value,
+                idade: inputIdade.value,
+                telefone: inputTelefone.value
+            };
+            jsonBody.value = JSON.stringify(obj, null, 2);
+        }
+        inputNome.addEventListener('input', updateJsonFromInputs);
+        inputEmail.addEventListener('input', updateJsonFromInputs);
+        inputIdade.addEventListener('input', updateJsonFromInputs);
+        inputTelefone.addEventListener('input', updateJsonFromInputs);
+        // Atualiza os inputs quando o JSON muda
+        jsonBody.addEventListener('input', function() {
+            try {
+                const obj = JSON.parse(jsonBody.value);
+                inputNome.value = obj.nome || '';
+                inputEmail.value = obj.email || '';
+                inputIdade.value = obj.idade || '';
+                inputTelefone.value = obj.telefone || '';
+            } catch {}
+        });
+        // Alterna entre inputs e JSON
+        toggleInputs.addEventListener('change', function() {
+            if (toggleInputs.checked) {
+                inputsArea.style.display = '';
+                updateJsonFromInputs();
+                jsonBody.readOnly = true;
+            } else {
+                inputsArea.style.display = 'none';
+                jsonBody.readOnly = false;
+            }
+        });
+        // Inicializa
+        inputsArea.style.display = '';
+        jsonBody.readOnly = true;
+
+        const form = document.getElementById('api-form');
+        const endpointSelect = document.getElementById('endpoint');
+        const idLabel = document.getElementById('id-label');
+        const bodyLabel = document.getElementById('body-label');
+        const responseBox = document.getElementById('response');
+
+        function getApiUrl(endpoint, table, id) {
+            switch (endpoint) {
+                case 'create': return `/${table}`;
+                case 'update': return `/${table}/${id}`;
+                case 'get':    return `/${table}/${id}`;
+                case 'list':   return `/${table}`;
+                case 'delete': return `/${table}/${id}`;
+                default: return '/';
+            }
+        }
+
+        function getMethod(endpoint) {
+            switch (endpoint) {
+                case 'create': return 'POST';
+                case 'update': return 'PUT';
+                case 'get':    return 'GET';
+                case 'list':   return 'GET';
+                case 'delete': return 'DELETE';
+                default: return 'GET';
+            }
+        }
+
+        endpointSelect.addEventListener('change', () => {
+            const endpoint = endpointSelect.value;
+            idLabel.style.display = (endpoint === 'update' || endpoint === 'get' || endpoint === 'delete') ? 'block' : 'none';
+            bodyLabel.style.display = (endpoint === 'create' || endpoint === 'update') ? 'block' : 'none';
+        });
+
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const serverUrl = document.getElementById('server-url').value;
+            const endpoint = endpointSelect.value;
+            const table = document.getElementById('table').value;
+            const id = document.getElementById('record-id').value;
+            let body;
+            let contentType;
+            // Corrigir: enviar todos os arquivos presentes no formulário, incluindo múltiplos arquivos por campo
+            const arquivosInputs = document.querySelectorAll('input[type="file"]');
+            let arquivosPresentes = false;
+            arquivosInputs.forEach(input => {
+                if (input.files && input.files.length > 0) arquivosPresentes = true;
+            });
+
+            if (toggleInputs.checked) {
+                body = {
+                    nome: inputNome.value,
+                    email: inputEmail.value,
+                    idade: inputIdade.value,
+                    telefone: inputTelefone.value
+                };
+            } else {
+                try {
+                    body = JSON.parse(jsonBody.value);
+                } catch (e) {
+                    responseBox.textContent = 'JSON inválido';
+                    return;
+                }
+            }
+
+            let options = {
+                method: getMethod(endpoint),
+                headers: {},
+            };
+
+            // Se houver qualquer arquivo, monta FormData com todos os arquivos e campos
+            if (arquivosPresentes) {
+                const formData = new FormData();
+                for (const key in body) {
+                    formData.append(key, body[key]);
+                }
+                arquivosInputs.forEach(input => {
+                    if (input.files && input.files.length > 0) {
+                        // Suporte a múltiplos arquivos por campo
+                        for (let i = 0; i < input.files.length; i++) {
+                            formData.append(input.name, input.files[i]);
+                        }
+                    }
+                });
+                options.body = formData;
+                // Não seta Content-Type, o browser faz
+            } else if (options.method !== 'GET' && options.method !== 'DELETE') {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify(body);
+            }
+
+            const url = serverUrl.replace(/\/$/, '') + getApiUrl(endpoint, table, id);
+
+            try {
+                const resp = await fetch(url, options);
+                const text = await resp.text();
+                try {
+                    responseBox.textContent = JSON.stringify(JSON.parse(text), null, 2);
+                } catch {
+                    responseBox.textContent = text;
+                }
+            } catch (err) {
+                responseBox.textContent = 'Erro: ' + err;
+            }
+        });
+    </script>
+</body>
+</html>
